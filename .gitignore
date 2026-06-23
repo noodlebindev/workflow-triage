@@ -1,0 +1,5 @@
+# macOS junk
+.DS_Store
+
+# Internal development artifacts — kept local, not published
+docs/

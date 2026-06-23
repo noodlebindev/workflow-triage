@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest a new behaviour or capability for the skill
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please describe the problem before the proposed solution — it's easier
+        to find a good fix when the underlying need is clear.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: When does this come up for you? What are you doing when you hit it?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How would you like the skill to behave?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Are there other approaches that would also work?
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Examples, links to similar features in other tools.
+    validations:
+      required: false
