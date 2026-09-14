@@ -3,3 +3,4 @@
 
 # Internal development artifacts — kept local, not published
 docs/
+.claude/settings.local.json
