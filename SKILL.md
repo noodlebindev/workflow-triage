@@ -42,9 +42,14 @@ Reach the verdict in two ordered steps. **Gates first.**
 - **`inline`** — small, sequential, low-risk work; one context handles it.
 - **`few-subagents`** — small multi-perspective pass (2–4 angles), merged once.
 - **`dynamic-workflow`** — breadth (5+ independent units), repeatable per-unit stages,
-  deterministic orchestration, or enforced verification. One-shot fan-out *now*.
-- **`loop`** — task depends on **external state changing over time**; it must wake up later
-  (CI, deploy, queue, webhook, prices, inbox).
+  deterministic orchestration, or enforced verification — or work that must run unattended
+  and survive interruption regardless of count. Maps to Claude Code's actual background,
+  resumable Dynamic Workflows feature (not the lead manually spawning subagents inline);
+  see REFERENCE.md §5 for the mechanism, triggers, and prerequisites.
+- **`loop`** — task is blocked **waiting on something else to change**, with nothing
+  productive to do meanwhile; it must wake up later (CI, deploy, queue, webhook, prices,
+  inbox). Not the same as work that can keep actively continuing toward a checkable
+  end-state — see REFERENCE.md §3's loop-vs-continue-until-done tie-break.
 - **`hybrid`** — a **sequenced** mode: one mode must safely unlock another. *Not* inherently
   the heaviest — often the *safer* choice because it inserts a human gate before fan-out.
   (e.g. scope-lock → workflow; manual reality-check → fan-out; read-only analysis → human
@@ -62,14 +67,22 @@ Score each 0–5.
 | 1 | Breadth | Are there 5+ genuinely independent units? |
 | 2 | Stage depth | Does each unit pass through repeatable stages? |
 | 3 | Verification need | Would adversarial review materially improve quality? |
-| 4 | External-state dependency | Does the task need to wake up later? |
+| 4 | External-state dependency | Is Claude blocked *waiting on someone/something else* to act (not just still working)? |
 | 5 | Human judgment sensitivity | Are there decisions that should stay with the human? |
+
+Note: "keep working across turns until a checkable condition holds" (e.g. "until tests
+pass") scores low on dimension 4 even if it runs many turns — that's active work with a
+stop condition, not waiting on an external actor. See REFERENCE.md §3 for the
+`loop`-vs-continue-until-done tie-break.
 
 ## Anti-signal gates
 
 **Gates override scores.** A high breadth score does not earn a workflow if a gate trips.
 Each gate: **name → what it caps/forces → why.**
 
+- **Bundled unrelated deliverables** → forces a split before triaging → the procedure
+  assumes one chunk of work; scoring several independent asks as a single unit produces a
+  verdict that fits none of the pieces.
 - **Single-file / small scope** → caps at `inline` (or `few-subagents` for review) → fan-out buys nothing.
 - **Mostly sequential** → blocks `dynamic-workflow` → no independent units to parallelise.
 - **Unclear goal / undefined "done"** → forces `do-not-automate` → scope must be resolved first (real next step is often brainstorm/scope).
@@ -123,7 +136,10 @@ Always respond in exactly this structure:
 | Human judgment sensitivity |           |       |
 
 ## Recommended Execution Shape
-Plain-English structure only. No script yet.
+Plain-English structure only. No script yet. If units write files in the same repo, name
+per-unit worktree isolation as the mechanism that keeps concurrent edits from colliding
+(REFERENCE.md §5) — this is a shape detail, separate from the Production mutation risk
+gate, which concerns writes to a live external system, not concurrent edits in a repo.
 
 ## Human Checkpoints
 * What the user needs to decide
@@ -158,6 +174,7 @@ that script generation is the next, separate step the user can trigger.
 ## Reference
 
 For scoring anchors (what 0 vs 5 looks like), gate reasoning, tie-break logic
-(inline-vs-few-subagents, few-subagents-vs-workflow, workflow-vs-loop, hybrid detection,
-do-not-automate as protection), and worked eval examples with filled scorecards, see
-`REFERENCE.md`.
+(inline-vs-few-subagents, few-subagents-vs-workflow, workflow-vs-loop,
+loop-vs-continue-until-done, hybrid detection, do-not-automate as protection), the
+dynamic-workflow mechanism and prerequisites (§5), and worked eval examples with filled
+scorecards, see `REFERENCE.md`.

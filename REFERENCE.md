@@ -3,7 +3,7 @@
 Deep material for the triage skill. Load when `SKILL.md` alone is not enough to resolve a
 case. Naming here matches `SKILL.md` exactly: the six verdicts (`inline`, `few-subagents`,
 `dynamic-workflow`, `loop`, `hybrid`, `do-not-automate`), the five dimensions, and the
-eight anti-signal gates.
+nine anti-signal gates.
 
 ---
 
@@ -23,9 +23,15 @@ Score each dimension 0–5. Anchors:
 - 0 = output is trivially checkable or low-stakes.
 - 5 = plausible-but-wrong output is likely and costly; independent skeptics would catch it.
 
-**External-state dependency** — *Does the task need to wake up later?*
-- 0 = all inputs available now; finishes in one pass.
-- 5 = blocked on state that changes over time (CI, deploy, queue, webhook, prices, inbox).
+**External-state dependency** — *Is Claude blocked waiting on someone/something else to
+act (not just still working)?*
+- 0 = all inputs available now; finishes in one pass, or Claude can keep working itself.
+- 5 = blocked on state that changes over time via someone/something else (CI, deploy,
+  queue, webhook, prices, inbox) — nothing to do meanwhile but check back.
+
+Note: work that can keep actively continuing toward a checkable end-state (e.g. "until
+tests pass") scores low here even across many turns — see §3's loop-vs-continue-until-done
+tie-break.
 
 **Human judgment sensitivity** — *Are there decisions that should stay with the human?*
 - 0 = mechanical, reversible, no taste or risk.
@@ -51,7 +57,14 @@ high the rubric scores.
   next step is scoping, not execution. Generic category: *undefined scope*.
 - **Production mutation risk** — protects live state. Autonomous fan-out that *writes* to
   production can cause irreversible damage at parallel scale. Generic category: *irreversible
-  production-state change*.
+  production-state change*. Distinct from ordinary concurrent-edit collision in a repo (two
+  workers touching the same file) — that risk is handled by per-unit worktree isolation as
+  a shape detail (§5), not by this gate; this gate is about writing to a live external
+  system, which isolation doesn't make safe.
+- **Bundled unrelated deliverables** — protects against forcing several independent asks
+  into one verdict. The decision procedure assumes a single chunk of work; scoring a bundle
+  as if it were one unit produces a verdict that fits none of the pieces well. Generic
+  category: *multiple unrelated deliverables presented as one request*.
 - **Financial decision-making** — protects money decisions. Research can be parallelised and
   verified; the decision to commit capital must stay human. Generic category: *financial
   decision-making where research can inform but not decide*.
@@ -77,14 +90,31 @@ reviewer should not be biased by the SEO reviewer's notes), and the results are 
 If it is one angle on one artifact, it is `inline`.
 
 **`few-subagents` vs `dynamic-workflow`** — Use `few-subagents` for a bounded, single-merge
-review of *one* artifact from a handful of angles. Escalate to `dynamic-workflow` only when
-there are 5+ independent *units* and/or each unit runs a repeatable multi-stage pipeline.
-The line: angles-on-one-thing → few-subagents; same-pipeline-over-many-things → workflow.
+review of *one* artifact from a handful of angles, run inline in the current turn. Escalate
+to `dynamic-workflow` when there are 5+ independent *units*, each unit runs a repeatable
+multi-stage pipeline, **or** the work needs to run unattended in the background and survive
+an interruption — even under 5 units, if it's long enough that babysitting it inline would
+tie up the session. The line: angles-on-one-thing, done in one turn → few-subagents;
+same-pipeline-over-many-things, or anything that should run in the background and resume if
+interrupted → workflow (§5).
 
 **`dynamic-workflow` vs `loop`** — Use `dynamic-workflow` when all units exist *now* and you
 fan out across them in one shot. Use `loop` when the work is blocked on external state that
 changes *over time* and must wake up later. Breadth points to workflow; external-state
-dependency points to loop. If both are present, see hybrid.
+dependency points to loop. If both are present, see hybrid. See also
+loop-vs-continue-until-done below for the case that looks like waiting but is actually still
+workable.
+
+**`loop` vs. continue-until-done** — `loop` is for work genuinely blocked on
+someone/something *else* acting, with nothing useful to do between checks (CI finishing, a
+deploy landing, a price crossing a threshold). If Claude can keep actively working every
+turn and the finish line is a checkable condition ("tests pass," "every call site
+migrated"), that is not `loop` — it's ordinary work (inline, or a dynamic-workflow
+repeat-until-condition pattern for fanned-out units) with a completion condition attached,
+not a time-based wait. Recommending a time-interval poll for work that could just keep
+grinding wastes cycles and delays completion; recommending "keep working" for something
+genuinely blocked on an external actor burns turns for nothing. Ask: *is there anything
+Claude can do right now, or is it purely waiting on someone/something else?*
 
 **`hybrid` detection** — Reach for `hybrid` when one mode must *safely unlock* another.
 Common shapes:
@@ -341,9 +371,71 @@ needed, downgrade to a read-only analysis workflow + human apply — a `hybrid`)
 "without review" is the tell: an irreversible production change with no human gate must not
 be automated.
 
+### Should split before triaging (not a single verdict)
+
+**"Fix the login bug, write the Q3 report, and refactor the payments module."**
+
+These are three independent deliverables with no shared scope, not one chunk of work with
+5+ *units* inside it. Gate: **Bundled unrelated deliverables** → split first. Triage each
+piece on its own (the bug fix is likely `inline`; the report may trip a judgment gate; the
+refactor may be its own `dynamic-workflow` candidate), or note that unrelated independent
+tasks are simpler to just dispatch as separate sessions than to force through one verdict.
+
 ---
 
-## 5. Generic-lesson mapping
+## 5. Dynamic-workflow mechanism and prerequisites
+
+What `dynamic-workflow` actually maps to, so the shape and cost estimate given are accurate
+to what will really happen — and what a session-scoped `loop` requires to keep firing.
+
+**Mechanism**: Claude writes a script (`agent()`, `pipeline()`, `parallel()`) that a
+separate runtime executes — not the lead spawning subagents turn-by-turn inline. The run
+happens in the background, so the session stays responsive. It is resumable: a stopped or
+interrupted run picks up from completed work rather than starting over (an edit or a
+failure upstream still reruns everything after it).
+
+**How to invoke it**: say "use a workflow," or include the `ultracode` keyword. Requires a
+prompt a human actually typed (or an equivalent human-originated route) — it does not fire
+from `-p`, an Agent SDK call, a scheduled-task prompt, or a webhook/PR-comment relay. Name
+this trigger in "Recommended Execution Shape" and "Next Step" rather than leaving the
+mechanism implicit.
+
+**Native verification pattern**: use this instead of hand-rolling "N subagents report back,
+lead adjudicates" — a workflow phase can have independent agents adversarially review each
+other's findings, or draft a plan from several angles and weigh them against each other,
+before anything is reported. This is the concrete mechanism behind the "3-skeptic
+adversarial verify" language in the stock-research worked example (§4).
+
+**Hard caps and cost signals** — cite these instead of a bare Low/Medium/High:
+- Up to 16 agents run concurrently; up to 4,096 items in a single `parallel()`/`pipeline()`
+  call; 1,000 agents total per run.
+- A size guideline steers how many agents Claude aims for: `small` (<5), `medium` (<15,
+  default), `large` (<50), `unrestricted`. State which guideline the task calls for.
+- A run is flagged "Large workflow" past 25 scheduled agents or a projected 1.5M tokens —
+  cite this threshold in "Token / Complexity Estimate" rather than just an adjective.
+
+**Prerequisites / off-switches** — state these when relevant instead of assuming
+availability:
+- Can be turned off session-wide or org-wide by settings; if it's off, or the prompt won't
+  be human-typed (e.g. this triage's output feeds an automated pipeline), fall back to
+  `few-subagents` at a smaller scope, or say so explicitly in "Human Checkpoints."
+
+**`loop` prerequisite**: a session-scoped wait only fires while that session is running and
+idle — closing the terminal stops it, though backgrounding the session carries it over. If
+the task must survive the machine or session being off, say so in "Human Checkpoints"
+rather than assuming the wait will simply keep going.
+
+**Worktree isolation** (referenced from the Production mutation risk gate note in §2 and
+from the Output template's "Recommended Execution Shape"): when a `dynamic-workflow` or
+`few-subagents` fan-out has units that write files in the same repository, give each unit
+its own isolated worktree so concurrent edits can't collide. This makes autonomous fan-out
+writes *safe within a repo* without a human gate — it does not by itself satisfy the
+Production mutation risk gate, which is about writes to a live external system, not
+concurrent edits in a checkout.
+
+---
+
+## 6. Generic-lesson mapping
 
 The core skill is generic and portable. Personal cases are illustrations only — each maps
 to a generic lesson, and only the generic lesson belongs in the procedural sections.
