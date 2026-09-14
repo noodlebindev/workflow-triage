@@ -21,8 +21,8 @@ gate that picks the right altitude, biased toward the lighter option.
 | --- | --- |
 | `inline` | Small, sequential, low-risk; one context handles it. |
 | `few-subagents` | Small multi-perspective pass (2–4 angles), merged once. |
-| `dynamic-workflow` | Breadth (5+ independent units), repeatable per-unit stages, or enforced verification. One-shot fan-out *now*. |
-| `loop` | Depends on **external state changing over time** (CI, deploy, queue, prices, inbox). |
+| `dynamic-workflow` | Breadth (5+ independent units), repeatable per-unit stages, or enforced verification — or work that must run unattended and survive interruption regardless of count. Maps to Claude Code's actual background, resumable Dynamic Workflows feature. |
+| `loop` | Blocked **waiting on something else to change** (CI, deploy, queue, prices, inbox), with nothing to do meanwhile. Not the same as work that can keep actively continuing toward a checkable end-state. |
 | `hybrid` | A **sequenced** mode — one mode safely unlocks another (e.g. scope-lock → workflow). Often *safer*, not heavier. |
 | `do-not-automate` | A **protection verdict** — decision-heavy, risky, financial, production-sensitive, or taste-led work where the human judgment *is* the work. |
 
@@ -54,8 +54,9 @@ DIMENSIONS (0–5, inform only)
   breadth · stage-depth · verification-need · external-state · human-sensitivity
 
 GATES (override scores)
-  single-file · sequential · undefined-"done" · production-mutation
-  financial-decision · strategy/taste · unbounded-scope · dodging-a-decision
+  bundled-deliverables · single-file · sequential · undefined-"done"
+  production-mutation · financial-decision · strategy/taste
+  unbounded-scope · dodging-a-decision
 ```
 
 ## Output
@@ -80,7 +81,8 @@ opportunities, or run on a schedule.
 
 - **`SKILL.md`** — always-loaded core: procedure, verdicts, rubric, gates, output template.
 - **`REFERENCE.md`** — on-demand depth: scoring anchors, gate reasoning, tie-break logic,
-  and worked examples with filled scorecards.
+  worked examples with filled scorecards, and the dynamic-workflow mechanism (real triggers,
+  caps, and prerequisites) behind the verdict.
 
 ## Status
 
